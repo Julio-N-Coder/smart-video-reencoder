@@ -9,6 +9,7 @@ import logging
 import shutil
 import subprocess
 import sys
+import signal
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -82,6 +83,11 @@ class VideoTranscoder:
             "total_saved": 0,
         }
 
+    def handle_signal(self, signum: int):
+        logger.info(f"\nSignal {signum} ({signal.Signals(signum).name}) received.")
+        self.print_summary()
+        sys.exit(0)
+
     def get_video_info(self, video_path: Path) -> Optional[Dict]:
         """Get video information using ffprobe"""
         try:
@@ -118,6 +124,21 @@ class VideoTranscoder:
         if duration:
             return float(duration)
         return None
+
+    def print_summary(self):
+        logger.info("\n" + "=" * 60)
+        logger.info("SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Total files processed: {self.stats['total_files']}")
+        logger.info(f"Skipped (codec): {self.stats['skipped_codec']}")
+        logger.info(f"Skipped (size): {self.stats['skipped_size']}")
+        logger.info(f"Transcoded: {self.stats['transcoded']}")
+        logger.info(f"Errors: {self.stats['errors']}")
+        logger.info(
+            f"Total saved: {self.stats['total_saved'] / 1024 / 1024 / 1024:.2f} GB"
+        )
+        if self.dry_run:
+            logger.info("\n[DRY RUN MODE - No files were actually transcoded]")
 
     def transcode_sample(
         self, video_path: Path, start_time: float, duration: int, output_path: Path
@@ -376,20 +397,7 @@ class VideoTranscoder:
                 logger.error(f"Unexpected error processing {video_path}: {e}")
                 self.stats["errors"] += 1
 
-        # Print summary
-        logger.info("\n" + "=" * 60)
-        logger.info("SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Total files processed: {self.stats['total_files']}")
-        logger.info(f"Skipped (codec): {self.stats['skipped_codec']}")
-        logger.info(f"Skipped (size): {self.stats['skipped_size']}")
-        logger.info(f"Transcoded: {self.stats['transcoded']}")
-        logger.info(f"Errors: {self.stats['errors']}")
-        logger.info(
-            f"Total saved: {self.stats['total_saved'] / 1024 / 1024 / 1024:.2f} GB"
-        )
-        if self.dry_run:
-            logger.info("\n[DRY RUN MODE - No files were actually transcoded]")
+        self.print_summary()
 
 
 def main():
@@ -504,6 +512,12 @@ def main():
         sample_duration=args.sample_duration,
         dry_run=args.dry_run,
     )
+
+    def signal_handler(signum, frame):
+        transcoder.handle_signal(signum)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Starting video transcoding process")
     logger.info(f"Log file: {log_file}")
