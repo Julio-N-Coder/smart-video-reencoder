@@ -251,7 +251,18 @@ class VideoTranscoder:
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Transcoding failed: {e}")
+            if output_path.exists():
+                output_path.unlink()
             return False
+        except Exception as e:
+            if output_path.exists():
+                output_path.unlink()
+            raise
+        except SystemExit:
+            logger.info("Removing Unfinished Video")
+            if output_path.exists():
+                output_path.unlink()
+            raise
 
     def check_disk_space(self, required_bytes: int) -> bool:
         """Check if there's enough disk space"""
@@ -362,10 +373,15 @@ class VideoTranscoder:
             logger.info(f"  Actual size: {actual_size / 1024 / 1024:.2f} MB")
             logger.info(f"  Actual reduction: {actual_reduction * 100:.1f}%")
             logger.info(f"  Saved: {(current_size - actual_size) / 1024 / 1024:.2f} MB")
-            self.stats["transcoded"] += 1
-            self.stats["total_saved"] += current_size - actual_size
+
+            # remove the video if size is bigger than original
+            if actual_size <= current_size:
+                logger.info("Video is smaller then original. Removing Video")
+                output_path.unlink()
+            else:
+                self.stats["transcoded"] += 1
+                self.stats["total_saved"] += current_size - actual_size
         else:
-            logger.error(f"  ✗ Transcoding failed")
             self.stats["errors"] += 1
 
     def process_directory(self) -> None:
@@ -381,7 +397,7 @@ class VideoTranscoder:
             ".webm",
         }
 
-        video_files = []
+        video_files: list[Path] = []
         for ext in video_extensions:
             video_files.extend(self.input_dir.rglob(f"*{ext}"))
             video_files.extend(self.input_dir.rglob(f"*{ext.upper()}"))
